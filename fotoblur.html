@@ -215,6 +215,8 @@ let currentFilter = 0;
 let gestureTriggered = false;
 let wasBlur = false, wasFist = false, wasSlam = false;
 let modeBlur = false, modeSensor = false, modeMotion = false, modeSfx = false;
+// Motion mode — own isolated state, never shared with sensor/blur
+let motionFilter = 0, motionGestureTrig = false;
 
 // ═══ GALAXY BG ═══
 const galCv = document.createElement('canvas');
@@ -549,8 +551,8 @@ function loop() {
       }
     }
 
-    // filter-change gesture ONLY when sensor OFF (avoid clash with python sensor)
-    if(!modeSensor){
+    // filter-change gesture ONLY when sensor+motion OFF (avoid clash)
+    if(!modeSensor && !modeMotion){
       let changeFilter=false;
       if(res.landmarks.length>=2){
         const i0=res.landmarks[0][8],i1=res.landmarks[1][8];
@@ -585,49 +587,52 @@ function loop() {
     }
   }
 
-  // ── MOTION mode: pure Python logic — skeleton + filter gesture + portal ──
-  // No blur, no default skeleton. Completely standalone.
-  if(modeMotion){
-    // Collect portal pts
+  // ── MOTION mode: pure Python logic — isolated state, no blur, no shared filter ──
+  if(modeMotion && res.landmarks?.length){
     let motionPortalPts=[];
-    let motionChangeFilter=false;
-    if(res.landmarks?.length){
-      for(const lm of res.landmarks){
-        if(d2(lm[4],lm[8],W,H)<PORTAL_DIST){
-          motionPortalPts.push({x:(1-lm[4].x)*W,y:lm[4].y*H});
-          motionPortalPts.push({x:(1-lm[8].x)*W,y:lm[8].y*H});
-        }
-      }
-      // Filter change: 2 index meet OR thumb+pinky
-      if(res.landmarks.length>=2){
-        const i0=res.landmarks[0][8],i1=res.landmarks[1][8];
-        if(d2(i0,i1,W,H)<40) motionChangeFilter=true;
-      }
-      for(const lm of res.landmarks){
-        if(d2(lm[4],lm[20],W,H)<40) motionChangeFilter=true;
-      }
-      if(motionChangeFilter){
-        if(!gestureTriggered){
-          currentFilter=(currentFilter+1)%FILTERS.length;
-          gestureTriggered=true;
-          showHint(`Filter: ${FILTERS[currentFilter]}`);
-          fbadge.textContent=FILTERS[currentFilter];
-          fbadge.style.display=currentFilter>0?'block':'none';
-          animate(fbadge,{scale:[1.1,1],duration:260,ease:'outBack'});
-        }
-      } else { gestureTriggered=false; }
+    let motionChangeGesture=false;
 
-      // Portal polygon (2 hands pinching = 4 pts)
-      if(motionPortalPts.length>=4){
-        drawPortal(motionPortalPts.slice(0,4),W,H);
-      } else if(currentFilter>0){
-        // filter ROI per hand bbox
-        for(const lm of res.landmarks) applyFilterROI(lm,W,H);
+    for(const lm of res.landmarks){
+      // portal: thumb(4)+index(8) pinch per hand
+      if(d2(lm[4],lm[8],W,H)<PORTAL_DIST){
+        motionPortalPts.push({x:(1-lm[4].x)*W,y:lm[4].y*H});
+        motionPortalPts.push({x:(1-lm[8].x)*W,y:lm[8].y*H});
       }
-
-      // Skeleton (Motion mode: always draw, Python default)
-      for(const lm of res.landmarks) drawSkeleton(lm,false,W,H);
+      // thumb+pinky gesture (single hand)
+      if(d2(lm[4],lm[20],W,H)<40) motionChangeGesture=true;
     }
+    // two index fingers meet (2 hands)
+    if(res.landmarks.length>=2){
+      const i0=res.landmarks[0][8], i1=res.landmarks[1][8];
+      if(d2(i0,i1,W,H)<40) motionChangeGesture=true;
+    }
+
+    // rising-edge filter cycle — own state, never touches currentFilter
+    if(motionChangeGesture){
+      if(!motionGestureTrig){
+        motionFilter=(motionFilter+1)%FILTERS.length;
+        motionGestureTrig=true;
+        showHint(`Motion Filter: ${FILTERS[motionFilter]}`);
+        fbadge.textContent=FILTERS[motionFilter];
+        fbadge.style.display=motionFilter>0?'block':'none';
+        animate(fbadge,{scale:[1.1,1],duration:260,ease:'outBack'});
+      }
+    } else { motionGestureTrig=false; }
+
+    // portal polygon (4 pts from 2 hands pinching)
+    if(motionPortalPts.length>=4){
+      const saved=currentFilter; currentFilter=motionFilter;
+      drawPortal(motionPortalPts.slice(0,4),W,H);
+      currentFilter=saved;
+    } else if(motionFilter>0){
+      // filter ROI per hand bbox using motionFilter
+      const saved=currentFilter; currentFilter=motionFilter;
+      for(const lm of res.landmarks) applyFilterROI(lm,W,H);
+      currentFilter=saved;
+    }
+
+    // skeleton always in Motion mode (Python default)
+    for(const lm of res.landmarks) drawSkeleton(lm,false,W,H);
   }
 
   // HUD timer + rec dot
@@ -768,7 +773,7 @@ function mkToggle(btn, getMode, setMode, cls, onOff) {
 }
 mkToggle(blurBtn,   ()=>modeBlur,   v=>{modeBlur=v;},   'on-blur');
 mkToggle(sensorBtn, ()=>modeSensor, v=>{modeSensor=v; if(!v){currentFilter=0;gestureTriggered=false;fbadge.style.display='none';}}, 'on-sensor');
-mkToggle(motionBtn, ()=>modeMotion, v=>{modeMotion=v; if(!v){currentFilter=0;gestureTriggered=false;fbadge.style.display='none';}}, 'on-motion');
+mkToggle(motionBtn, ()=>modeMotion, v=>{modeMotion=v; if(!v){motionFilter=0;motionGestureTrig=false;fbadge.style.display='none';}}, 'on-motion');
 mkToggle(sfxBtn,    ()=>modeSfx,    v=>{modeSfx=v;   sfxBadge.style.display=v?'block':'none';}, 'on-sfx');
 
 // ═══ EVENTS ═══
