@@ -244,10 +244,10 @@
   <!-- Mode toggles -->
   <div class="toggle-group">
     <span class="toggle-label">mode</span>
-    <button class="toggle-btn" id="sensorBtn" disabled title="Motion Tracker — skeleton tangan + portal + filter gesture">
+    <div class="toggle-btn on" id="sensorBtn" style="cursor:default;pointer-events:none;" title="Motion Tracker selalu aktif">
       <span class="tdot"></span>
       <span>Sensor</span>
-    </button>
+    </div>
     <button class="toggle-btn" id="sfxBtn" disabled title="Sound FX — kepal=Jokowi, gebrak=Antek">
       <span class="tdot"></span>
       <span>SFX</span>
@@ -349,9 +349,8 @@ let currentFilter = 0;
 let gestureTriggered = false;
 let wasFist = false, wasSlam = false;
 
-// Mode flags
-let modeSensor = false;
-let modeSfx    = false;
+// Mode flags — sensor ALWAYS on, sfx toggleable
+let modeSfx = false;
 
 // ── GALAXY BG ────────────────────────────────────────────
 const galaxyCanvas = document.createElement('canvas');
@@ -609,6 +608,31 @@ function drawPortal(pts4, w, h) {
   ctx.fillText(`${FILTERS[currentFilter]}`,poly[0].x+4,poly[0].y-8);
 }
 
+// ── BLUR PER-HAND REGION (like Python GaussianBlur on ROI) ──
+function blurHandRegion(lm, w, h) {
+  // Bounding box sekitar semua landmark + padding
+  const PAD = 40;
+  let minX=w, minY=h, maxX=0, maxY=0;
+  for (const p of lm) {
+    const x=(1-p.x)*w, y=p.y*h;
+    if(x<minX)minX=x; if(x>maxX)maxX=x;
+    if(y<minY)minY=y; if(y>maxY)maxY=y;
+  }
+  minX=Math.max(0,Math.floor(minX-PAD));
+  minY=Math.max(0,Math.floor(minY-PAD));
+  maxX=Math.min(w,Math.ceil(maxX+PAD));
+  maxY=Math.min(h,Math.ceil(maxY+PAD));
+  const bw=maxX-minX, bh=maxY-minY;
+  if(bw<4||bh<4) return;
+
+  // Baca region, blur dgn canvas filter trick, tulis balik
+  ensureOff(bw,bh);
+  offCtx.filter=`blur(${MAX_BLUR}px)`;
+  offCtx.drawImage(canvas, minX,minY,bw,bh, 0,0,bw,bh);
+  offCtx.filter='none';
+  ctx.drawImage(offscreen, 0,0,bw,bh, minX,minY,bw,bh);
+}
+
 // ── MAIN LOOP ────────────────────────────────────────────
 function loop() {
   if (!video||video.readyState<2) { animId=requestAnimationFrame(loop); return; }
@@ -618,77 +642,72 @@ function loop() {
 
   const result = handLandmarker.detectForVideo(video, performance.now());
 
-  let peaceCount=0, fistCount=0;
-  let portalPts=[];
+  let peaceLms=[]; // landmarks of peace hands
+  let fistCount=0;
+  let portalPts=[];   // [thumb_px, index_px] per pinching hand → 2 pts per hand → 4 total for 2 hands
   let changeFilter=false;
 
   if (result.landmarks?.length) {
     for (const lm of result.landmarks) {
-      if (isPeace(lm)) peaceCount++;
+      if (isPeace(lm)) peaceLms.push(lm);
       if (isFist(lm))  fistCount++;
 
-      // Portal points (sensor mode only)
-      if (modeSensor && dist2d(lm[4],lm[8],w,h) < PORTAL_DIST) {
+      // Portal: collect thumb(4) + index(8) pixel coords dari setiap tangan yang pinch
+      if (dist2d(lm[4],lm[8],w,h) < PORTAL_DIST) {
         portalPts.push({ x:(1-lm[4].x)*w, y:lm[4].y*h });
+        portalPts.push({ x:(1-lm[8].x)*w, y:lm[8].y*h });
       }
     }
 
-    // Filter change gesture (sensor mode only)
-    if (modeSensor) {
-      if (result.landmarks.length >= 2) {
-        const i0=result.landmarks[0][8], i1=result.landmarks[1][8];
-        if (dist2d(i0,i1,w,h) < 40) changeFilter=true;
-      }
-      for (const lm of result.landmarks) {
-        if (dist2d(lm[4],lm[20],w,h) < 40) changeFilter=true;
-      }
-      if (changeFilter) {
-        if (!gestureTriggered) {
-          currentFilter=(currentFilter+1)%FILTERS.length;
-          gestureTriggered=true;
-          showHint(`Filter: ${FILTERS[currentFilter]}`);
-          filterBadge.textContent=FILTERS[currentFilter];
-          filterBadge.style.display=currentFilter>0?'block':'none';
-          animate(filterBadge,{scale:[1.12,1],duration:280,ease:'outBack'});
-        }
-      } else { gestureTriggered=false; }
+    // Filter change: 2 index fingers ketemu OR thumb+pinky satu tangan
+    if (result.landmarks.length >= 2) {
+      const i0=result.landmarks[0][8], i1=result.landmarks[1][8];
+      if (dist2d(i0,i1,w,h) < 40) changeFilter=true;
     }
+    for (const lm of result.landmarks) {
+      if (dist2d(lm[4],lm[20],w,h) < 40) changeFilter=true;
+    }
+    if (changeFilter) {
+      if (!gestureTriggered) {
+        currentFilter=(currentFilter+1)%FILTERS.length;
+        gestureTriggered=true;
+        showHint(`Filter: ${FILTERS[currentFilter]}`);
+        filterBadge.textContent=FILTERS[currentFilter];
+        filterBadge.style.display=currentFilter>0?'block':'none';
+        animate(filterBadge,{scale:[1.12,1],duration:280,ease:'outBack'});
+      }
+    } else { gestureTriggered=false; }
   }
 
-  // Blur
-  const target = peaceCount > 0 ? 1 : 0;
-  blurAmount += (target - blurAmount) * BLUR_FADE;
-  blurAmount  = Math.max(0, Math.min(1, blurAmount));
-  const blurPx = blurAmount * MAX_BLUR;
-
-  // Draw video (mirrored)
+  // ── Draw video bersih (mirrored, tanpa blur dulu) ──
   ctx.save();
-  ctx.filter = blurPx>0.3 ? `blur(${blurPx.toFixed(1)}px)` : 'none';
   ctx.translate(w,0); ctx.scale(-1,1);
   ctx.drawImage(video,0,0,w,h);
   ctx.restore();
-  ctx.filter='none';
 
-  // Portal or full-frame filter
-  if (modeSensor) {
-    if (portalPts.length===4) {
-      drawPortal(portalPts,w,h);
-    } else if (portalPts.length===0 && currentFilter>0 && result.landmarks?.length>0) {
-      const imgData=ctx.getImageData(0,0,w,h);
-      applyFilter(imgData,FILTERS[currentFilter],w,h);
-      ctx.putImageData(imgData,0,0);
-    }
-    // Draw skeleton
-    if (result.landmarks?.length) {
-      for (const lm of result.landmarks) drawHand(lm,isPeace(lm),w,h);
-    }
+  // ── Blur region per tangan yang peace (seperti Python ROI blur) ──
+  for (const lm of peaceLms) blurHandRegion(lm, w, h);
+
+  // ── Portal (4 titik = 2 tangan pinch) atau full-frame filter ──
+  if (portalPts.length >= 4) {
+    drawPortal(portalPts.slice(0,4), w, h);
+  } else if (currentFilter > 0 && result.landmarks?.length > 0) {
+    // Full frame filter kalau filter aktif tapi ga ada portal
+    const imgData=ctx.getImageData(0,0,w,h);
+    applyFilter(imgData,FILTERS[currentFilter],w,h);
+    ctx.putImageData(imgData,0,0);
+  }
+
+  // ── Skeleton tangan (selalu) ──
+  if (result.landmarks?.length) {
+    for (const lm of result.landmarks) drawHand(lm, isPeace(lm), w, h);
   }
 
   // HUD
   drawHud(w,h);
 
   // Blur glow / badge
-  const nowBlur = blurAmount > 0.3;
+  const nowBlur = peaceLms.length > 0;
   if (nowBlur !== wasBlur) {
     blurGlow.classList.toggle('active', nowBlur);
     nowBlur ? showBadge() : hideBadge();
@@ -761,7 +780,7 @@ async function startCamera() {
     loop();
 
     startBtn.textContent='■ Stop'; startBtn.classList.remove('btn-start'); startBtn.onclick=stopCamera;
-    recordBtn.disabled=false; sensorBtn.disabled=false; sfxBtn.disabled=false;
+    recordBtn.disabled=false; sfxBtn.disabled=false;
     sdotCam.classList.add('on'); sCam.textContent='on';
     setStatus('Siap');
     timerInterval=setInterval(()=>{
@@ -781,11 +800,11 @@ function stopCamera() {
   filterBadge.style.display='none';
   currentFilter=0;
   startBtn.textContent='▶ Start'; startBtn.classList.add('btn-start'); startBtn.onclick=startCamera;
-  recordBtn.disabled=true; sensorBtn.disabled=true; sfxBtn.disabled=true;
+  recordBtn.disabled=true; sfxBtn.disabled=true;
   // reset modes
-  modeSensor=false; modeSfx=false;
-  sensorBtn.classList.remove('on'); sfxBtn.classList.remove('on');
-  mbSensor.classList.remove('vis'); mbSfx.classList.remove('vis');
+  modeSfx=false;
+  sfxBtn.classList.remove('on');
+  mbSfx.classList.remove('vis');
   sdotCam.classList.remove('on'); sCam.textContent='off';
   sTimer.textContent='00:00'; setStatus('—');
 }
@@ -817,16 +836,7 @@ function stopRecording() {
 function setStatus(msg) { statusMsg.textContent=msg; }
 
 // ── TOGGLE MODES ─────────────────────────────────────────
-sensorBtn.onclick = () => {
-  modeSensor = !modeSensor;
-  sensorBtn.classList.toggle('on', modeSensor);
-  mbSensor.classList.toggle('vis', modeSensor);
-  if (!modeSensor) {
-    // reset filter & portal state
-    currentFilter=0; gestureTriggered=false;
-    filterBadge.style.display='none';
-  }
-};
+// Sensor always on — button removed from logic, SFX only toggle
 sfxBtn.onclick = () => {
   modeSfx = !modeSfx;
   sfxBtn.classList.toggle('on', modeSfx);
