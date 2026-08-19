@@ -85,9 +85,12 @@
       cursor:pointer;border:1px solid var(--bdr2);background:var(--card);color:var(--dim);
       display:flex;align-items:center;gap:6px;letter-spacing:.04em;transition:all .15s;position:relative;overflow:hidden}
     .tog .dot{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.45;transition:opacity .15s;flex-shrink:0}
-    .tog.on{color:var(--amb);border-color:rgba(251,191,36,.4)}
-    .tog.on::before{content:'';position:absolute;inset:0;background:rgba(251,191,36,.07)}
-    .tog.on .dot{opacity:1;box-shadow:0 0 5px currentColor}
+    .tog.on-blur{color:#a78bfa;border-color:rgba(167,139,250,.4)}
+    .tog.on-blur::before{content:'';position:absolute;inset:0;background:rgba(167,139,250,.07)}
+    .tog.on-sensor{color:var(--grn);border-color:rgba(52,211,153,.4)}
+    .tog.on-sensor::before{content:'';position:absolute;inset:0;background:rgba(52,211,153,.07)}
+    .tog.on-sfx{color:var(--amb);border-color:rgba(251,191,36,.4)}
+    .tog.on-sfx::before{content:'';position:absolute;inset:0;background:rgba(251,191,36,.07)}
     .tog span{position:relative}
 
     /* STATUS */
@@ -135,6 +138,12 @@
   <button class="btn btn-s" id="startBtn">▶ Start</button>
   <button class="btn btn-rec" id="recBtn" disabled>⏺ Record</button>
   <div class="sep"></div>
+  <button class="tog" id="blurBtn" disabled>
+    <span class="dot"></span><span>Blur</span>
+  </button>
+  <button class="tog" id="sensorBtn" disabled>
+    <span class="dot"></span><span>Sensor</span>
+  </button>
   <button class="tog" id="sfxBtn" disabled>
     <span class="dot"></span><span>SFX</span>
   </button>
@@ -176,6 +185,8 @@ const canvas   = document.getElementById('canvas');
 const ctx      = canvas.getContext('2d');
 const startBtn = document.getElementById('startBtn');
 const recBtn   = document.getElementById('recBtn');
+const blurBtn  = document.getElementById('blurBtn');
+const sensorBtn= document.getElementById('sensorBtn');
 const sfxBtn   = document.getElementById('sfxBtn');
 const idle     = document.getElementById('idle');
 const glow     = document.getElementById('glow');
@@ -199,7 +210,7 @@ let t0 = 0, timerIv;
 let currentFilter = 0;
 let gestureTriggered = false;
 let wasBlur = false, wasFist = false, wasSlam = false;
-let modeSfx = false;
+let modeBlur = false, modeSensor = false, modeSfx = false;
 
 // ═══ GALAXY BG ═══
 const galCv = document.createElement('canvas');
@@ -530,20 +541,23 @@ function loop() {
     } else {gestureTriggered=false;}
   }
 
-  // ── Python: blur hanya region tangan yang peace ──
-  for(const lm of peaceLms) blurHandROI(lm,W,H);
-
-  // ── Python: portal polygon dengan filter ──
-  if(portalPts.length>=4){
-    drawPortal(portalPts.slice(0,4),W,H);
-  } else if(currentFilter>0 && res.landmarks?.length>0){
-    // Full-frame filter kalau ga ada portal tapi filter aktif
-    const imgData=ctx.getImageData(0,0,W,H);
-    applyFilter(imgData,FILTERS[currentFilter],W,H);
-    ctx.putImageData(imgData,0,0);
+  // ── Blur per-hand ROI (Blur mode only) ──
+  if(modeBlur){
+    for(const lm of peaceLms) blurHandROI(lm,W,H);
   }
 
-  // ── Python: draw skeleton landmarks on all hands ──
+  // ── Sensor mode: portal + full-frame filter ──
+  if(modeSensor){
+    if(portalPts.length>=4){
+      drawPortal(portalPts.slice(0,4),W,H);
+    } else if(currentFilter>0 && res.landmarks?.length>0){
+      const imgData=ctx.getImageData(0,0,W,H);
+      applyFilter(imgData,FILTERS[currentFilter],W,H);
+      ctx.putImageData(imgData,0,0);
+    }
+  }
+
+  // ── Skeleton always drawn ──
   if(res.landmarks?.length){
     for(const lm of res.landmarks) drawSkeleton(lm,isPeace(lm),W,H);
   }
@@ -551,8 +565,8 @@ function loop() {
   // HUD timer + rec dot
   drawHUD(W,H);
 
-  // Blur glow/badge
-  const nowBlur=peaceLms.length>0;
+  // Blur glow/badge (only when blur mode on)
+  const nowBlur=modeBlur&&peaceLms.length>0;
   if(nowBlur!==wasBlur){
     glow.classList.toggle('on',nowBlur);
     nowBlur?showPBadge():hidePBadge();
@@ -617,7 +631,7 @@ async function startCam(){
     idle.classList.add('gone');
     t0=Date.now(); loop();
     startBtn.textContent='■ Stop';startBtn.classList.remove('btn-s');startBtn.onclick=stopCam;
-    recBtn.disabled=false;sfxBtn.disabled=false;
+    recBtn.disabled=false;blurBtn.disabled=false;sensorBtn.disabled=false;sfxBtn.disabled=false;
     sdCam.classList.add('cam');sCam.textContent='on';
     setMsg('Siap');
     timerIv=setInterval(()=>{
@@ -635,8 +649,14 @@ function stopCam(){
   glow.classList.remove('on');hidePBadge();
   fbadge.style.display='none';currentFilter=0;
   startBtn.textContent='▶ Start';startBtn.classList.add('btn-s');startBtn.onclick=startCam;
-  recBtn.disabled=true;sfxBtn.disabled=true;
-  modeSfx=false;sfxBtn.classList.remove('on');sfxBadge.style.display='none';
+  recBtn.disabled=true;blurBtn.disabled=true;sensorBtn.disabled=true;sfxBtn.disabled=true;
+  modeBlur=false;modeSensor=false;modeSfx=false;
+  [blurBtn,sensorBtn,sfxBtn].forEach(b=>{
+    b.classList.remove('on-blur','on-sensor','on-sfx');
+    b.querySelector('.dot').style.opacity='.45';
+    b.querySelector('.dot').style.boxShadow='none';
+  });
+  sfxBadge.style.display='none';
   sdCam.classList.remove('cam');sCam.textContent='off';
   sdRec.classList.remove('rec');sRec.textContent='—';
   sTime.textContent='00:00';setMsg('—');
@@ -666,12 +686,20 @@ function stopRec(){
 
 function setMsg(m){smsg.textContent=m;}
 
-// ═══ SFX TOGGLE ═══
-sfxBtn.onclick=()=>{
-  modeSfx=!modeSfx;
-  sfxBtn.classList.toggle('on',modeSfx);
-  sfxBadge.style.display=modeSfx?'block':'none';
-};
+// ═══ TOGGLES ═══
+function mkToggle(btn, getMode, setMode, cls, onOff) {
+  btn.onclick = () => {
+    const v = !getMode();
+    setMode(v);
+    btn.classList.toggle(cls, v);
+    btn.querySelector('.dot').style.opacity = v ? '1' : '.45';
+    btn.querySelector('.dot').style.boxShadow = v ? '0 0 5px currentColor' : 'none';
+    if (onOff) onOff(v);
+  };
+}
+mkToggle(blurBtn,   ()=>modeBlur,   v=>{modeBlur=v;},   'on-blur');
+mkToggle(sensorBtn, ()=>modeSensor, v=>{modeSensor=v; if(!v){currentFilter=0;gestureTriggered=false;fbadge.style.display='none';}}, 'on-sensor');
+mkToggle(sfxBtn,    ()=>modeSfx,    v=>{modeSfx=v;   sfxBadge.style.display=v?'block':'none';}, 'on-sfx');
 
 // ═══ EVENTS ═══
 startBtn.onclick=startCam;
@@ -694,7 +722,7 @@ if(!noM){
     .add('#ctrl',  {translateY:[8,0],  opacity:[0,1],duration:460},'-=360')
     .add('#sbar',  {opacity:[0,1],duration:360},'-=200')
     .add('.hc',    {translateY:[10,0], opacity:[0,1],duration:440,delay:stagger(50)},'-=160');
-  [startBtn,recBtn,sfxBtn].forEach(b=>{
+  [startBtn,recBtn,blurBtn,sensorBtn,sfxBtn].forEach(b=>{
     b.addEventListener('mouseenter',()=>{if(!b.disabled)animate(b,{scale:1.03,duration:130,ease:'outQuad'});});
     b.addEventListener('mouseleave',()=>{animate(b,{scale:1,duration:150,ease:'outQuad'});});
   });
