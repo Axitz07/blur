@@ -533,21 +533,21 @@ function loop() {
 
   let peaceLms=[], fistCount=0;
   let portalPts=[];
-  let changeFilter=false;
 
   if(res.landmarks?.length){
     for(const lm of res.landmarks){
       if(isPeace(lm)) peaceLms.push(lm);
       if(isFist(lm))  fistCount++;
-      // portal: thumb(4)+index(8) per pinching hand
+      // portal: thumb(4)+index(8) per pinching hand — sensor only
       if(modeSensor && d2(lm[4],lm[8],W,H)<PORTAL_DIST){
         portalPts.push({x:(1-lm[4].x)*W,y:lm[4].y*H});
         portalPts.push({x:(1-lm[8].x)*W,y:lm[8].y*H});
       }
     }
 
-    // filter change gesture (sensor mode only)
-    if(modeSensor){
+    // filter-change gesture ONLY when sensor OFF (avoid clash with python sensor)
+    if(!modeSensor){
+      let changeFilter=false;
       if(res.landmarks.length>=2){
         const i0=res.landmarks[0][8],i1=res.landmarks[1][8];
         if(d2(i0,i1,W,H)<40) changeFilter=true;
