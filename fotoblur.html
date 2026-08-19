@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Foto Kita Blur</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #12121a;
+      --border:    rgba(255,255,255,0.07);
+      --accent:    #c8ff00;
+      --accent2:   #7c3aed;
+      --text:      #e8e8f0;
+      --muted:     #52526a;
+      --danger:    #ff3b3b;
+      --r:         14px;
+      --font-ui:   'Space Grotesk', sans-serif;
+      --font-mono: 'Space Mono', monospace;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 40px;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 28px;
+      opacity: 0;
+      transform: translateY(-16px);
+    }
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+    .logo span {
+      color: var(--accent);
+    }
+    .tagline {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    /* ── Viewport ── */
+    #stage {
+      position: relative;
+      width: 100%;
+      max-width: 960px;
+      background: #000;
+      border-radius: var(--r);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 200px;
+    }
+
+    /* Idle overlay */
+    #idle {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: #000;
+      transition: opacity 0.4s;
+    }
+    #idle.hidden { opacity: 0; pointer-events: none; }
+    .idle-icon {
+      font-size: 3rem;
+      line-height: 1;
+    }
+    .idle-text {
+      font-size: 0.85rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* Blur glow overlay */
+    #blurGlow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: var(--r);
+      box-shadow: inset 0 0 0 0 var(--accent);
+      transition: box-shadow 0.3s;
+    }
+    #blurGlow.active {
+      box-shadow: inset 0 0 60px 10px rgba(200,255,0,0.12);
+    }
+
+    /* Peace badge */
+    #peaceBadge {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-60px);
+      background: var(--accent);
+      color: #000;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 5px 14px;
+      border-radius: 100px;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    /* ── Controls ── */
+    #controls {
+      width: 100%;
+      max-width: 960px;
+      margin-top: 16px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .btn {
+      font-family: var(--font-ui);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      padding: 11px 22px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .btn:hover  { background: #1e1e2e; border-color: rgba(255,255,255,0.15); }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+    }
+    .btn-primary:hover { background: #d4ff1a; border-color: #d4ff1a; }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+      animation: recPulse 1.2s infinite;
+    }
+    @keyframes recPulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.75; }
+    }
+
+    .btn-music {
+      font-family: var(--font-ui);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      padding: 11px 22px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+      transition: background 0.15s, border-color 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-music:hover { background: #1e1e2e; border-color: rgba(255,255,255,0.15); }
+    .btn-music.loaded { border-color: var(--accent2); color: #a78bfa; }
+
+    /* ── Status bar ── */
+    #statusBar {
+      width: 100%;
+      max-width: 960px;
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      opacity: 0;
+    }
+    #statusMsg { flex: 1; }
+    #statusRight { display: flex; gap: 16px; }
+    .stat { display: flex; gap: 6px; align-items: center; }
+    .stat-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .stat-dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    /* ── Hint ── */
+    #hint {
+      margin-top: 28px;
+      width: 100%;
+      max-width: 960px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      opacity: 0;
+    }
+    .hint-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .hint-num {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+      padding-top: 2px;
+      flex-shrink: 0;
+    }
+    .hint-text {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .hint-text strong { color: var(--text); font-weight: 500; }
+  </style>
+</head>
+<body>
+
+  <header id="header">
+    <div class="logo">Foto Kita <span>Blur</span></div>
+    <div class="tagline">peace sign → blur</div>
+  </header>
+
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="idle">
+      <div class="idle-icon">✌️</div>
+      <div class="idle-text">Klik Start untuk mulai</div>
+    </div>
+    <div id="blurGlow"></div>
+    <div id="peaceBadge">BLUR AKTIF</div>
+  </div>
+
+  <div id="controls">
+    <button class="btn btn-primary" id="startBtn">
+      <span>▶</span> Start
+    </button>
+    <button class="btn" id="recordBtn" disabled>
+      <span>⏺</span> Record
+    </button>
+  </div>
+
+  <div id="statusBar">
+    <span id="statusMsg">—</span>
+    <div id="statusRight">
+      <div class="stat">
+        <div class="stat-dot" id="dotCam"></div>
+        <span id="statCam">kamera off</span>
+      </div>
+      <div class="stat">
+        <div class="stat-dot" id="dotRec"></div>
+        <span id="statRec">—</span>
+      </div>
+      <div class="stat">
+        <span id="statTimer">00:00</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <div class="hint-card">
+      <div class="hint-num">01</div>
+      <div class="hint-text">Klik <strong>Start</strong> — izinkan akses kamera</div>
+    </div>
+    <div class="hint-card">
+      <div class="hint-num">02</div>
+      <div class="hint-text">Angkat <strong>2 jari ✌️</strong> — layar blur otomatis</div>
+    </div>
+    <div class="hint-card">
+      <div class="hint-num">03</div>
+      <div class="hint-text">Klik <strong>Record</strong> — video + musik tersimpan</div>
+    </div>
+    <div class="hint-card">
+      <div class="hint-num">04</div>
+      <div class="hint-text">Stop record — file <strong>.webm</strong> auto-download</div>
+    </div>
+  </div>
+
+  <!-- Anime.js v4 CDN -->
+  <script type="module">
+    import { animate, createTimeline, stagger } from 'https://cdn.jsdelivr.net/npm/animejs/+esm';
+    import { HandLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+
+    // ═══ CONFIG ═══
+    const BLUR_FADE  = 0.12;
+    const MAX_HANDS  = 4;
+    const CONFIDENCE = 0.5;
+    const MAX_BLUR   = 22;   // px, GPU ctx.filter
+
+    // ═══ DOM ═══
+    const canvas     = document.getElementById('canvas');
+    const ctx        = canvas.getContext('2d');
+    const startBtn   = document.getElementById('startBtn');
+    const recordBtn  = document.getElementById('recordBtn');
+    const idle       = document.getElementById('idle');
+    const blurGlow   = document.getElementById('blurGlow');
+    const peaceBadge = document.getElementById('peaceBadge');
+    const statusMsg  = document.getElementById('statusMsg');
+    const dotCam     = document.getElementById('dotCam');
+    const dotRec     = document.getElementById('dotRec');
+    const statCam    = document.getElementById('statCam');
+    const statRec    = document.getElementById('statRec');
+    const statTimer  = document.getElementById('statTimer');
+
+    // ═══ STATE ═══
+    let video, handLandmarker;
+    let animId;
+    let blurAmount  = 0;
+    let wasBlur     = false;
+    let recording   = false;
+    let mediaRecorder, chunks = [];
+    let startTime   = 0;
+    let timerInterval;
+
+    // ═══ MUSIK — auto-load music.mp3 ═══
+    let musicBuffer = null, musicSource = null, audioCtx = null;
+
+    async function loadMusic() {
+      try {
+        const res = await fetch('music.mp3');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (!audioCtx) audioCtx = new AudioContext();
+        musicBuffer = await audioCtx.decodeAudioData(buf);
+        setStatus('Musik siap ♪');
+      } catch (e) {
+        console.warn('[MUSIK] Gagal load music.mp3:', e.message);
+        // Lanjut tanpa musik — bukan error fatal
+      }
+    }
+
+    function startMusic() {
+      if (!musicBuffer || !audioCtx) return;
+      stopMusic();
+      musicSource = audioCtx.createBufferSource();
+      musicSource.buffer = musicBuffer;
+      musicSource.loop = true;
+      musicSource.connect(audioCtx.destination);
+      musicSource.start(0);
+    }
+    function stopMusic() {
+      if (musicSource) { try { musicSource.stop(); } catch(_){} musicSource = null; }
+    }
+
+    // ═══ MEDIAPIPE ═══
+    async function initMP() {
+      const vision = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+      );
+      handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task',
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO',
+        numHands: MAX_HANDS,
+        minHandDetectionConfidence: CONFIDENCE,
+        minHandPresenceConfidence: CONFIDENCE,
+        minTrackingConfidence: 0.5
+      });
+    }
+
+    // ═══ JOKOWI SOUND ═══
+    let jokowiBuffer = null, jokowiSource = null;
+    let jokowiCooldown = 0;
+
+    async function loadJokowi() {
+      try {
+        const res = await fetch('hidup-jokowi.mp3');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (!audioCtx) audioCtx = new AudioContext();
+        jokowiBuffer = await audioCtx.decodeAudioData(buf);
+      } catch (e) {
+        console.warn('[JOKOWI] Gagal load hidup-jokowi.mp3:', e.message);
+      }
+    }
+
+    function playJokowi() {
+      if (!jokowiBuffer || !audioCtx) return;
+      if (Date.now() < jokowiCooldown) return;
+      if (jokowiSource) { try { jokowiSource.stop(); } catch(_){} }
+      jokowiSource = audioCtx.createBufferSource();
+      jokowiSource.buffer = jokowiBuffer;
+      jokowiSource.connect(audioCtx.destination);
+      jokowiSource.start(0);
+      const durasiMs = jokowiBuffer.duration * 1000 + 500;
+      jokowiCooldown = Date.now() + durasiMs;
+    }
+
+    // ═══ ANTEK SOUND ═══
+    let antekBuffer = null, antekSource = null;
+    let antekCooldown = 0;
+
+    async function loadAntek() {
+      try {
+        const res = await fetch('hey-antek-antek-asing-prabowo.mp3');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (!audioCtx) audioCtx = new AudioContext();
+        antekBuffer = await audioCtx.decodeAudioData(buf);
+      } catch (e) {
+        console.warn('[ANTEK] Gagal load hey-antek-antek-asing-prabowo.mp3:', e.message);
+      }
+    }
+
+    function playAntek() {
+      if (!antekBuffer || !audioCtx) return;
+      if (Date.now() < antekCooldown) return;
+      if (antekSource) { try { antekSource.stop(); } catch(_){} }
+      antekSource = audioCtx.createBufferSource();
+      antekSource.buffer = antekBuffer;
+      antekSource.connect(audioCtx.destination);
+      antekSource.start(0);
+      const durasiMs = antekBuffer.duration * 1000 + 500;
+      antekCooldown = Date.now() + durasiMs;
+    }
+
+    // ─── Slam (gebrak) detector ───
+    // Deteksi tangan bergerak cepat ke bawah lalu naik (gebrak meja)
+    const slamHistory = []; // { y, t }
+    const SLAM_DOWN_VEL  = 0.4;  // velocity Y ke bawah minimum (unit/detik)
+    const SLAM_UP_VEL    = 0.2;  // velocity Y naik balik minimum
+    const SLAM_WINDOW    = 500;  // ms
+
+    function detectSlam(lm) {
+      const now = performance.now();
+      const y   = lm[0].y; // wrist Y, normalized 0-1
+
+      slamHistory.push({ y, t: now });
+      while (slamHistory.length > 0 && now - slamHistory[0].t > SLAM_WINDOW) {
+        slamHistory.shift();
+      }
+      if (slamHistory.length < 3) return false;
+
+      // Hitung velocity max ke bawah dan naik dalam window
+      let maxDownVel = 0, maxUpVel = 0;
+      for (let i = 1; i < slamHistory.length; i++) {
+        const dt = (slamHistory[i].t - slamHistory[i-1].t) / 1000; // detik
+        if (dt <= 0) continue;
+        const vel = (slamHistory[i].y - slamHistory[i-1].y) / dt;
+        if (vel > 0) maxDownVel = Math.max(maxDownVel, vel);
+        else         maxUpVel   = Math.max(maxUpVel, -vel);
+      }
+
+      // Harus ada gerakan turun cepat DAN ada rebound naik
+      return maxDownVel > SLAM_DOWN_VEL && maxUpVel > SLAM_UP_VEL;
+    }
+
+    let wasSlam = false;
+
+    // ═══ GESTURE ═══
+    function isPeace(lm) {
+      // Index + middle up, ring + pinky down
+      const indexUp  = lm[8].y  < lm[6].y;
+      const middleUp = lm[12].y < lm[10].y;
+      const ringDown = lm[16].y > lm[14].y;
+      const pinkyDown= lm[20].y > lm[18].y;
+      return indexUp && middleUp && ringDown && pinkyDown;
+    }
+
+    function isFist(lm) {
+      // Fingertip harus di bawah PIP (joint tengah) — lebih ketat dari sekedar di bawah MCP
+      const indexDown  = lm[8].y  > lm[7].y  && lm[8].y  > lm[5].y;
+      const middleDown = lm[12].y > lm[11].y && lm[12].y > lm[9].y;
+      const ringDown   = lm[16].y > lm[15].y && lm[16].y > lm[13].y;
+      const pinkyDown  = lm[20].y > lm[19].y && lm[20].y > lm[17].y;
+      // Semua 4 jari harus curl, bukan cuma sebagian
+      return indexDown && middleDown && ringDown && pinkyDown;
+    }
+
+    // track state fist per frame buat trigger sekali aja
+    let wasFist = false;
+
+    // ═══ HAND DRAWING ═══
+    const CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],
+      [0,5],[5,6],[6,7],[7,8],
+      [5,9],[9,10],[10,11],[11,12],
+      [9,13],[13,14],[14,15],[15,16],
+      [13,17],[17,18],[18,19],[19,20],[0,17]
+    ];
+
+    function drawHand(lm, peace, w, h) {
+      // Canvas is already drawn mirrored (ctx.scale(-1,1)).
+      // Landmarks from MediaPipe are in original (un-mirrored) coords.
+      // To match mirrored video: flip X = (1 - lm.x) * w
+      const pts = lm.map(p => ({ x: (1 - p.x) * w, y: p.y * h }));
+
+      const col    = peace ? '#c8ff00' : 'rgba(255,255,255,0.55)';
+      const colDim = peace ? 'rgba(200,255,0,0.35)' : 'rgba(255,255,255,0.15)';
+
+      // Connections
+      ctx.strokeStyle = colDim;
+      ctx.lineWidth   = peace ? 2.5 : 1.5;
+      ctx.lineCap     = 'round';
+      for (const [a,b] of CONNECTIONS) {
+        ctx.beginPath();
+        ctx.moveTo(pts[a].x, pts[a].y);
+        ctx.lineTo(pts[b].x, pts[b].y);
+        ctx.stroke();
+      }
+
+      // Fingertip highlights
+      const tips = [4, 8, 12, 16, 20];
+      for (const i of tips) {
+        const active = peace && (i === 8 || i === 12);
+        ctx.beginPath();
+        ctx.arc(pts[i].x, pts[i].y, active ? 8 : 5, 0, Math.PI * 2);
+        ctx.fillStyle = active ? '#c8ff00' : colDim;
+        ctx.fill();
+        if (active) {
+          ctx.beginPath();
+          ctx.arc(pts[i].x, pts[i].y, 13, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(200,255,0,0.3)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+
+      // Knuckle dots
+      const knuckles = [0,1,2,3,5,6,7,9,10,11,13,14,15,17,18,19];
+      for (const i of knuckles) {
+        ctx.beginPath();
+        ctx.arc(pts[i].x, pts[i].y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
+      }
+
+      // Peace label
+      if (peace) {
+        ctx.font      = 'bold 12px "Space Grotesk", sans-serif';
+        ctx.fillStyle = '#c8ff00';
+        ctx.letterSpacing = '0.1em';
+        const tx = pts[9].x - 28;
+        const ty = pts[9].y - 28;
+        ctx.fillText('✌ PEACE', tx, ty);
+      }
+    }
+
+    // ═══ MAIN LOOP ═══
+    function loop() {
+      if (!video || video.readyState < 2) {
+        animId = requestAnimationFrame(loop);
+        return;
+      }
+
+      const w = video.videoWidth, h = video.videoHeight;
+      if (canvas.width !== w)  canvas.width  = w;
+      if (canvas.height !== h) canvas.height = h;
+
+      // Detect
+      const result = handLandmarker.detectForVideo(video, performance.now());
+      let peaceCount = 0, handCount = 0, fistCount = 0;
+      if (result.landmarks?.length) {
+        handCount = result.landmarks.length;
+        for (const lm of result.landmarks) {
+          if (isPeace(lm)) peaceCount++;
+          if (isFist(lm)) fistCount++;
+        }
+      }
+
+      // Trigger Jokowi sound saat fist mulai (rising edge)
+      const nowFist = fistCount > 0;
+      if (nowFist && !wasFist) playJokowi();
+      wasFist = nowFist;
+
+      // Trigger Antek sound saat slam (gebrak) terdeteksi
+      if (result.landmarks?.length) {
+        const nowSlam = result.landmarks.some(lm => detectSlam(lm));
+        if (nowSlam && !wasSlam) playAntek();
+        wasSlam = nowSlam;
+      } else {
+        wasSlam = false;
+      }
+
+      // Blur fade
+      const target  = peaceCount > 0 ? 1 : 0;
+      blurAmount   += (target - blurAmount) * BLUR_FADE;
+      blurAmount    = Math.max(0, Math.min(1, blurAmount));
+      const blurPx  = blurAmount * MAX_BLUR;
+
+      // Draw video (mirrored)
+      ctx.save();
+      ctx.filter = blurPx > 0.3 ? `blur(${blurPx.toFixed(1)}px)` : 'none';
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, w, h);
+      ctx.restore();
+
+      // Draw hands on top (no filter)
+      ctx.filter = 'none';
+      if (result.landmarks?.length) {
+        for (const lm of result.landmarks) {
+          drawHand(lm, isPeace(lm), w, h);
+        }
+      }
+
+      // HUD — timer + hands count
+      drawHud(w, h, handCount, peaceCount);
+
+      // Side effects: glow + badge
+      const nowBlur = blurAmount > 0.3;
+      if (nowBlur !== wasBlur) {
+        blurGlow.classList.toggle('active', nowBlur);
+        if (nowBlur) showBadge(); else hideBadge();
+        wasBlur = nowBlur;
+      }
+
+      animId = requestAnimationFrame(loop);
+    }
+
+    function drawHud(w, h, hands, peace) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const mm = String(Math.floor(elapsed / 60)).padStart(2,'0');
+      const ss = String(elapsed % 60).padStart(2,'0');
+
+      ctx.font      = '13px "Space Mono", monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText(`${mm}:${ss}`, w - 60, h - 14);
+
+      if (recording) {
+        // REC dot
+        if (Math.floor(Date.now() / 600) % 2 === 0) {
+          ctx.beginPath();
+          ctx.arc(w - 80, h - 20, 5, 0, Math.PI * 2);
+          ctx.fillStyle = '#ff3b3b';
+          ctx.fill();
+        }
+      }
+    }
+
+    // ═══ BADGE ANIME ═══
+    let badgeAnim;
+    function showBadge() {
+      if (badgeAnim) badgeAnim.cancel();
+      peaceBadge.style.opacity = '1';
+      badgeAnim = animate(peaceBadge, {
+        translateX: ['-50%','-50%'],
+        translateY: ['-60px', '0px'],
+        duration: 400,
+        ease: 'outBack'
+      });
+    }
+    function hideBadge() {
+      if (badgeAnim) badgeAnim.cancel();
+      badgeAnim = animate(peaceBadge, {
+        translateX: ['-50%','-50%'],
+        translateY: ['0px', '-60px'],
+        duration: 300,
+        ease: 'inQuart',
+        onComplete: () => { peaceBadge.style.opacity = '0'; }
+      });
+    }
+
+    // ═══ CAMERA ═══
+    async function startCamera() {
+      try {
+        setStatus('Memuat MediaPipe...');
+        await initMP();
+
+        setStatus('Menyalakan kamera...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720, facingMode: 'user' },
+          audio: false
+        });
+
+        video = document.createElement('video');
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.playsInline = true;
+        await new Promise(r => { video.onloadedmetadata = () => { video.play(); r(); }; });
+
+        idle.classList.add('hidden');
+        startTime = Date.now();
+        loop();
+
+        startBtn.innerHTML  = '<span>■</span> Stop';
+        startBtn.classList.remove('btn-primary');
+        startBtn.onclick    = stopCamera;
+        recordBtn.disabled  = false;
+        dotCam.classList.add('on');
+        statCam.textContent = 'kamera on';
+        setStatus('Siap — angkat 2 jari untuk blur');
+
+        timerInterval = setInterval(() => {
+          const e = Math.floor((Date.now() - startTime) / 1000);
+          statTimer.textContent = `${String(Math.floor(e/60)).padStart(2,'0')}:${String(e%60).padStart(2,'0')}`;
+        }, 1000);
+
+        animate(startBtn, { scale: [1.05, 1], duration: 300, ease: 'outBack' });
+      } catch(e) {
+        setStatus(`Error: ${e.message}`);
+      }
+    }
+
+    function stopCamera() {
+      if (animId) cancelAnimationFrame(animId);
+      video?.srcObject?.getTracks().forEach(t => t.stop());
+      video = null;
+      if (recording) stopRecording();
+      clearInterval(timerInterval);
+
+      idle.classList.remove('hidden');
+      blurGlow.classList.remove('active');
+      hideBadge();
+
+      startBtn.innerHTML  = '<span>▶</span> Start';
+      startBtn.classList.add('btn-primary');
+      startBtn.onclick    = startCamera;
+      recordBtn.disabled  = true;
+      dotCam.classList.remove('on');
+      statCam.textContent = 'kamera off';
+      statTimer.textContent = '00:00';
+      setStatus('—');
+    }
+
+    // ═══ RECORDING ═══
+    function startRecording() {
+      const stream = canvas.captureStream(30);
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      chunks = [];
+
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `fotoblur_${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatus('Video tersimpan ✓');
+      };
+
+      mediaRecorder.start();
+      recording = true;
+      startMusic();
+
+      recordBtn.innerHTML = '<span>■</span> Stop Rec';
+      recordBtn.classList.add('btn-danger');
+      dotRec.classList.add('on');
+      statRec.textContent = 'rec';
+      setStatus('Merekam...');
+      animate(recordBtn, { scale: [1.06, 1], duration: 300, ease: 'outBack' });
+    }
+
+    function stopRecording() {
+      mediaRecorder?.state !== 'inactive' && mediaRecorder.stop();
+      recording = false;
+      stopMusic();
+
+      recordBtn.innerHTML = '<span>⏺</span> Record';
+      recordBtn.classList.remove('btn-danger');
+      dotRec.classList.remove('on');
+      statRec.textContent = '—';
+    }
+
+    // ═══ UTILS ═══
+    function setStatus(msg) { statusMsg.textContent = msg; }
+
+    // ═══ EVENTS ═══
+    startBtn.onclick  = startCamera;
+    recordBtn.onclick = () => recording ? stopRecording() : startRecording();
+
+    // Auto-load musik saat page ready
+    loadMusic();
+    loadJokowi();
+    loadAntek();
+
+    // ═══ ENTRANCE ANIMATION ═══
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!prefersReduced) {
+      createTimeline({ ease: 'outExpo' })
+        .add('#header',    { translateY: [-16, 0], opacity: [0, 1], duration: 600 })
+        .add('#stage',     { translateY: [20, 0],  opacity: [0, 1], duration: 700 }, '-=400')
+        .add('#controls',  { translateY: [12, 0],  opacity: [0, 1], duration: 500 }, '-=400')
+        .add('#statusBar', { opacity: [0, 1], duration: 400 }, '-=200')
+        .add('.hint-card', {
+          translateY: [16, 0], opacity: [0, 1],
+          duration: 500,
+          delay: stagger(70)
+        }, '-=200');
+
+      // Btn hover micro-interactions
+      [startBtn, recordBtn].forEach(btn => {
+        btn.addEventListener('mouseenter', () => {
+          if (!btn.disabled) animate(btn, { scale: 1.03, duration: 180, ease: 'outQuad' });
+        });
+        btn.addEventListener('mouseleave', () => {
+          animate(btn, { scale: 1, duration: 200, ease: 'outQuad' });
+        });
+      });
+    } else {
+      // No animation — just show
+      ['#header','#stage','#controls','#statusBar'].forEach(s => {
+        const el = document.querySelector(s);
+        el.style.opacity  = '1';
+        el.style.transform = 'none';
+      });
+      document.querySelectorAll('.hint-card').forEach(c => {
+        c.style.opacity  = '1';
+        c.style.transform = 'none';
+      });
+    }
+  </script>
+</body>
+</html>
