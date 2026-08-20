@@ -580,10 +580,19 @@ function loop() {
 
   // ── Sensor mode ──
   if(modeSensor && res.landmarks?.length){
-    // cross-hand: index tips from 2 hands touching → apply filter ROI on both hands
-    const crossTouch = res.landmarks.length>=2 &&
-      d2(res.landmarks[0][8], res.landmarks[1][8], W, H) < PORTAL_DIST;
-    if(crossTouch){
+    // any finger tip from left+right hand touching → apply filter ROI on both
+    let fingerTouch = false;
+    if(res.landmarks.length>=2){
+      const TIPS=[4,8,12,16,20];
+      outer: for(const ti of TIPS){
+        for(const tj of TIPS){
+          if(d2(res.landmarks[0][ti], res.landmarks[1][tj], W, H) < PORTAL_DIST){
+            fingerTouch=true; break outer;
+          }
+        }
+      }
+    }
+    if(fingerTouch){
       for(const lm of res.landmarks) applyFilterROI(lm,W,H);
     }
 
