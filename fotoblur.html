@@ -547,10 +547,6 @@ function loop() {
     for(const lm of res.landmarks){
       if(isPeace(lm)) peaceLms.push(lm);
       if(isFist(lm))  fistCount++;
-      // portal: index(8) cross-hand contact — collect all index tips, check pairs
-      if(modeSensor){
-        portalPts.push({x:(1-lm[8].x)*W, y:lm[8].y*H});
-      }
     }
 
     // filter-change gesture always active (sensor handles its own)
@@ -576,29 +572,36 @@ function loop() {
     }
   }
 
-  // ── Sensor mode: filter applied per-hand bounding box (NOT full frame) ──
   // ── Default skeleton — always draw when hands detected ──
   if(res.landmarks?.length){
     const isPeaceHand = (lm) => peaceLms.includes(lm);
     for(const lm of res.landmarks) drawSkeleton(lm, isPeaceHand(lm), W, H);
   }
 
-  // ── Sensor mode: portal when 2 index tips meet cross-hand, else filter ROI ──
+  // ── Sensor mode ──
   if(modeSensor && res.landmarks?.length){
-    // portal: 2 hands, index tips close together
+    // cross-hand: index tips from 2 hands touching → apply filter ROI on both hands
     const crossTouch = res.landmarks.length>=2 &&
       d2(res.landmarks[0][8], res.landmarks[1][8], W, H) < PORTAL_DIST;
     if(crossTouch){
-      // build 4 pts: index+middle tips from each hand
-      const p=[];
-      for(const lm of res.landmarks.slice(0,2)){
-        p.push({x:(1-lm[8].x)*W, y:lm[8].y*H});
-        p.push({x:(1-lm[12].x)*W,y:lm[12].y*H});
-      }
-      drawPortal(p,W,H);
-    } else {
       for(const lm of res.landmarks) applyFilterROI(lm,W,H);
     }
+
+    // filter-change: ring finger (lm[16]) raised above lm[14] on any hand
+    let ringUp=false;
+    for(const lm of res.landmarks){
+      if(lm[16].y < lm[14].y) ringUp=true;
+    }
+    if(ringUp){
+      if(!gestureTriggered){
+        currentFilter=(currentFilter+1)%FILTERS.length;
+        gestureTriggered=true;
+        showHint(`Filter: ${FILTERS[currentFilter]}`);
+        fbadge.textContent=FILTERS[currentFilter];
+        fbadge.style.display=currentFilter>0?'block':'none';
+        animate(fbadge,{scale:[1.1,1],duration:260,ease:'outBack'});
+      }
+    } else { gestureTriggered=false; }
   }
 
   // HUD timer + rec dot
