@@ -144,9 +144,6 @@
   <button class="tog" id="sensorBtn" disabled>
     <span class="dot"></span><span>Sensor</span>
   </button>
-  <button class="tog" id="motionBtn" disabled>
-    <span class="dot"></span><span>Motion</span>
-  </button>
   <button class="tog" id="sfxBtn" disabled>
     <span class="dot"></span><span>SFX</span>
   </button>
@@ -190,7 +187,7 @@ const startBtn = document.getElementById('startBtn');
 const recBtn   = document.getElementById('recBtn');
 const blurBtn  = document.getElementById('blurBtn');
 const sensorBtn= document.getElementById('sensorBtn');
-const motionBtn= document.getElementById('motionBtn');
+const motionBtn= null; // removed
 const sfxBtn   = document.getElementById('sfxBtn');
 const idle     = document.getElementById('idle');
 const glow     = document.getElementById('glow');
@@ -214,9 +211,7 @@ let t0 = 0, timerIv;
 let currentFilter = 0;
 let gestureTriggered = false;
 let wasBlur = false, wasFist = false, wasSlam = false;
-let modeBlur = false, modeSensor = false, modeMotion = false, modeSfx = false;
-// Motion mode — own isolated state, never shared with sensor/blur
-let motionFilter = 0, motionGestureTrig = false;
+let modeBlur = false, modeSensor = false, modeSfx = false;
 
 // ═══ GALAXY BG ═══
 const galCv = document.createElement('canvas');
@@ -561,8 +556,8 @@ function loop() {
       }
     }
 
-    // filter-change gesture ONLY when sensor+motion OFF (avoid clash)
-    if(!modeSensor && !modeMotion){
+    // filter-change gesture always active (sensor handles its own)
+    if(!modeSensor){
       let changeFilter=false;
       if(res.landmarks.length>=2){
         const i0=res.landmarks[0][8],i1=res.landmarks[1][8];
@@ -585,58 +580,20 @@ function loop() {
   }
 
   // ── Sensor mode: filter applied per-hand bounding box (NOT full frame) ──
-  // ── Sensor mode: filter applied per-hand fingertip region (NOT full frame) ──
+  // ── Default skeleton — always draw when hands detected ──
+  if(res.landmarks?.length){
+    const isPeaceHand = (lm) => peaceLms.includes(lm);
+    for(const lm of res.landmarks) drawSkeleton(lm, isPeaceHand(lm), W, H);
+  }
+
+  // ── Sensor mode: filter applied per-hand fingertip region ──
+  // ── Sensor mode: filter applied per-hand fingertip region ──
   if(modeSensor && res.landmarks?.length){
     if(portalPts.length>=4){
       drawPortal(portalPts.slice(0,4),W,H);
     } else {
       for(const lm of res.landmarks) applyFilterROI(lm,W,H);
     }
-  }
-
-  // ── MOTION mode: pure Python logic — isolated state, no blur, no shared filter ──
-  if(modeMotion && res.landmarks?.length){
-    let motionPortalPts=[];
-    let motionChangeGesture=false;
-
-    for(const lm of res.landmarks){
-      // portal: thumb(4)+index(8) pinch per hand
-      if(d2(lm[4],lm[8],W,H)<PORTAL_DIST){
-        motionPortalPts.push({x:(1-lm[4].x)*W,y:lm[4].y*H});
-        motionPortalPts.push({x:(1-lm[8].x)*W,y:lm[8].y*H});
-      }
-      // thumb+pinky gesture (single hand)
-      if(d2(lm[4],lm[20],W,H)<40) motionChangeGesture=true;
-    }
-    // two index fingers meet (2 hands)
-    if(res.landmarks.length>=2){
-      const i0=res.landmarks[0][8], i1=res.landmarks[1][8];
-      if(d2(i0,i1,W,H)<40) motionChangeGesture=true;
-    }
-
-    // rising-edge filter cycle — own state, never touches currentFilter
-    if(motionChangeGesture){
-      if(!motionGestureTrig){
-        motionFilter=(motionFilter+1)%FILTERS.length;
-        motionGestureTrig=true;
-        showHint(`Motion Filter: ${FILTERS[motionFilter]}`);
-        fbadge.textContent=FILTERS[motionFilter];
-        fbadge.style.display=motionFilter>0?'block':'none';
-        animate(fbadge,{scale:[1.1,1],duration:260,ease:'outBack'});
-      }
-    } else { motionGestureTrig=false; }
-
-    // portal polygon (4 pts from 2 hands pinching)
-    if(motionPortalPts.length>=4){
-      const saved=currentFilter; currentFilter=motionFilter;
-      drawPortal(motionPortalPts.slice(0,4),W,H);
-      currentFilter=saved;
-    } else if(motionFilter>0){
-      for(const lm of res.landmarks) applyFilterROI(lm,W,H,motionFilter);
-    }
-
-    // skeleton always in Motion mode (Python default)
-    for(const lm of res.landmarks) drawSkeleton(lm,false,W,H);
   }
 
   // HUD timer + rec dot
@@ -708,7 +665,7 @@ async function startCam(){
     idle.classList.add('gone');
     t0=Date.now(); loop();
     startBtn.textContent='■ Stop';startBtn.classList.remove('btn-s');startBtn.onclick=stopCam;
-    recBtn.disabled=false;blurBtn.disabled=false;sensorBtn.disabled=false;motionBtn.disabled=false;sfxBtn.disabled=false;
+    recBtn.disabled=false;blurBtn.disabled=false;sensorBtn.disabled=false;sfxBtn.disabled=false;
     sdCam.classList.add('cam');sCam.textContent='on';
     setMsg('Siap');
     timerIv=setInterval(()=>{
@@ -726,10 +683,9 @@ function stopCam(){
   glow.classList.remove('on');hidePBadge();
   fbadge.style.display='none';currentFilter=0;
   startBtn.textContent='▶ Start';startBtn.classList.add('btn-s');startBtn.onclick=startCam;
-  recBtn.disabled=true;blurBtn.disabled=true;sensorBtn.disabled=true;motionBtn.disabled=true;sfxBtn.disabled=true;
+  recBtn.disabled=true;blurBtn.disabled=true;sensorBtn.disabled=true;sfxBtn.disabled=true;
   modeBlur=false;modeSensor=false;modeSfx=false;
-  modeMotion=false; motionBtn.classList.remove('on-motion');
-  [blurBtn,sensorBtn,motionBtn,sfxBtn].forEach(b=>{
+  [blurBtn,sensorBtn,sfxBtn].forEach(b=>{
     b.classList.remove('on-blur','on-sensor','on-sfx');
     b.querySelector('.dot').style.opacity='.45';
     b.querySelector('.dot').style.boxShadow='none';
@@ -777,7 +733,6 @@ function mkToggle(btn, getMode, setMode, cls, onOff) {
 }
 mkToggle(blurBtn,   ()=>modeBlur,   v=>{modeBlur=v;},   'on-blur');
 mkToggle(sensorBtn, ()=>modeSensor, v=>{modeSensor=v; if(v&&currentFilter===0){currentFilter=1;fbadge.textContent=FILTERS[1];fbadge.style.display='block';} if(!v){currentFilter=0;gestureTriggered=false;fbadge.style.display='none';}}, 'on-sensor');
-mkToggle(motionBtn, ()=>modeMotion, v=>{modeMotion=v; if(!v){motionFilter=0;motionGestureTrig=false;fbadge.style.display='none';}}, 'on-motion');
 mkToggle(sfxBtn,    ()=>modeSfx,    v=>{modeSfx=v;   sfxBadge.style.display=v?'block':'none';}, 'on-sfx');
 
 // ═══ EVENTS ═══
@@ -801,7 +756,7 @@ if(!noM){
     .add('#ctrl',  {translateY:[8,0],  opacity:[0,1],duration:460},'-=360')
     .add('#sbar',  {opacity:[0,1],duration:360},'-=200')
     .add('.hc',    {translateY:[10,0], opacity:[0,1],duration:440,delay:stagger(50)},'-=160');
-  [startBtn,recBtn,blurBtn,sensorBtn,motionBtn,sfxBtn].forEach(b=>{
+  [startBtn,recBtn,blurBtn,sensorBtn,sfxBtn].forEach(b=>{
     b.addEventListener('mouseenter',()=>{if(!b.disabled)animate(b,{scale:1.03,duration:130,ease:'outQuad'});});
     b.addEventListener('mouseleave',()=>{animate(b,{scale:1,duration:150,ease:'outQuad'});});
   });
