@@ -471,8 +471,8 @@ function drawSkeleton(lm, peace, W, H) {
   for(const[i,pt]of pts.entries()){
     const tip=[4,8,12,16,20].includes(i);
     const act=peace&&(i===8||i===12);
-    // id 4,8 = thumb+index tip highlight (yellow like Python)
-    const isPortalPt=(i===4||i===8);
+    // all fingertips yellow when sensor mode on
+    const isPortalPt=tip&&modeSensor;
     ctx.beginPath();ctx.arc(pt.x,pt.y,act?7:tip?4.5:2.5,0,Math.PI*2);
     ctx.fillStyle=isPortalPt?'rgba(255,255,0,.85)':act?'#a78bfa':peace?'rgba(167,139,250,.75)':'rgba(255,255,255,.3)';
     ctx.fill();
