@@ -359,6 +359,19 @@ function applyFilter(imgData, name, W, H) {
         const ci=((y+dy)*W+x+dx)*4;d[ci]=pr;d[ci+1]=pg;d[ci+2]=pb;
       }
     }
+  } else if(name==='BLUR'){
+    // box blur approximation (fast, no OffscreenCanvas needed)
+    const tmp=new Uint8ClampedArray(d);
+    const R=3;
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      let r=0,g=0,b=0,n=0;
+      for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+        const nx=x+dx,ny=y+dy;
+        if(nx<0||nx>=W||ny<0||ny>=H) continue;
+        const j=(ny*W+nx)*4; r+=tmp[j];g+=tmp[j+1];b+=tmp[j+2];n++;
+      }
+      const i=(y*W+x)*4; d[i]=r/n;d[i+1]=g/n;d[i+2]=b/n;
+    }
   } else if(name==='SKETCH'){
     // mirrors Python: GaussianBlur+divide approach → edge-based
     const gr=new Uint8ClampedArray(len/4);
@@ -599,17 +612,33 @@ function loop() {
       }
     } else { gestureTriggered=false; }
 
-    // pts_portal: thumb(4)+index(8) per hand → 4 pts from 2 hands
+    // pts_portal: cari 2 jari terdekat antar 2 tangan → 4 pts portal
+    // any finger (all 21 lm) from each hand, pick closest cross-hand pair
     const ptsPor=[];
-    for(const lm of res.landmarks){
-      ptsPor.push({x:(1-lm[4].x)*W, y:lm[4].y*H});
-      ptsPor.push({x:(1-lm[8].x)*W, y:lm[8].y*H});
+    if(res.landmarks.length>=2){
+      const lm0=res.landmarks[0], lm1=res.landmarks[1];
+      const TIPS=[4,8,12,16,20];
+      let best1={dist:Infinity,i:8,j:8};
+      for(const ti of TIPS) for(const tj of TIPS){
+        const dd=d2(lm0[ti],lm1[tj],W,H);
+        if(dd<best1.dist){best1={dist:dd,i:ti,j:tj};}
+      }
+      // pick 2 different fingers from each hand around best match
+      const i0=best1.i, j0=best1.j;
+      const i1=TIPS.find(t=>t!==i0)||4;
+      const j1=TIPS.find(t=>t!==j0)||8;
+      ptsPor.push({x:(1-lm0[i0].x)*W,y:lm0[i0].y*H});
+      ptsPor.push({x:(1-lm0[i1].x)*W,y:lm0[i1].y*H});
+      ptsPor.push({x:(1-lm1[j0].x)*W,y:lm1[j0].y*H});
+      ptsPor.push({x:(1-lm1[j1].x)*W,y:lm1[j1].y*H});
+    } else if(res.landmarks.length===1){
+      const lm=res.landmarks[0];
+      ptsPor.push({x:(1-lm[4].x)*W,y:lm[4].y*H});
+      ptsPor.push({x:(1-lm[8].x)*W,y:lm[8].y*H});
+      ptsPor.push({x:(1-lm[12].x)*W,y:lm[12].y*H});
+      ptsPor.push({x:(1-lm[16].x)*W,y:lm[16].y*H});
     }
-
-    if(ptsPor.length===4){
-      // portal polygon — filter inside polygon clip (mirrors Python fillPoly mask)
-      drawPortal(ptsPor,W,H);
-    }
+    if(ptsPor.length===4) drawPortal(ptsPor,W,H);
   }
 
   // HUD timer + rec dot
