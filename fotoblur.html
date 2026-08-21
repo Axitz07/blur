@@ -499,16 +499,24 @@ function drawPortal(pts4, W, H) {
   if(bw<10||bh<10) return;
 
   // Read ROI, apply filter, write via clip
-  const imgData=ctx.getImageData(minX,minY,bw,bh);
-  applyFilter(imgData, FILTERS[currentFilter], bw, bh);
+  const fname=FILTERS[currentFilter];
   const off=getOff('portal',bw,bh);
-  off._ctx.putImageData(imgData,0,0);
+  if(fname==='BLUR'){
+    // GPU path: use CSS filter on OffscreenCanvas (fast, no pixel loop)
+    off._ctx.filter=`blur(${BLUR_R}px)`;
+    off._ctx.drawImage(canvas, minX,minY,bw,bh, 0,0,bw,bh);
+    off._ctx.filter='none';
+  } else {
+    const imgData=ctx.getImageData(minX,minY,bw,bh);
+    applyFilter(imgData, fname, bw, bh);
+    off._ctx.putImageData(imgData,0,0);
+  }
 
   ctx.save();
   ctx.beginPath();ctx.moveTo(poly[0].x,poly[0].y);
   for(let i=1;i<poly.length;i++) ctx.lineTo(poly[i].x,poly[i].y);
   ctx.closePath();ctx.clip();
-  ctx.drawImage(off,minX,minY);
+  ctx.drawImage(off, 0,0,bw,bh, minX,minY,bw,bh);
   ctx.restore();
 
   // Border (white like Python cv2.polylines)
@@ -612,33 +620,26 @@ function loop() {
       }
     } else { gestureTriggered=false; }
 
-    // pts_portal: cari 2 jari terdekat antar 2 tangan → 4 pts portal
-    // any finger (all 21 lm) from each hand, pick closest cross-hand pair
+    // portal: 2 jari terdekat per tangan (any finger), 4 pts total
     const ptsPor=[];
     if(res.landmarks.length>=2){
       const lm0=res.landmarks[0], lm1=res.landmarks[1];
       const TIPS=[4,8,12,16,20];
-      let best1={dist:Infinity,i:8,j:8};
+      // find closest pair cross-hand
+      let bestDist=Infinity,bestI=8,bestJ=8;
       for(const ti of TIPS) for(const tj of TIPS){
         const dd=d2(lm0[ti],lm1[tj],W,H);
-        if(dd<best1.dist){best1={dist:dd,i:ti,j:tj};}
+        if(dd<bestDist){bestDist=dd;bestI=ti;bestJ=tj;}
       }
-      // pick 2 different fingers from each hand around best match
-      const i0=best1.i, j0=best1.j;
-      const i1=TIPS.find(t=>t!==i0)||4;
-      const j1=TIPS.find(t=>t!==j0)||8;
-      ptsPor.push({x:(1-lm0[i0].x)*W,y:lm0[i0].y*H});
-      ptsPor.push({x:(1-lm0[i1].x)*W,y:lm0[i1].y*H});
-      ptsPor.push({x:(1-lm1[j0].x)*W,y:lm1[j0].y*H});
-      ptsPor.push({x:(1-lm1[j1].x)*W,y:lm1[j1].y*H});
-    } else if(res.landmarks.length===1){
-      const lm=res.landmarks[0];
-      ptsPor.push({x:(1-lm[4].x)*W,y:lm[4].y*H});
-      ptsPor.push({x:(1-lm[8].x)*W,y:lm[8].y*H});
-      ptsPor.push({x:(1-lm[12].x)*W,y:lm[12].y*H});
-      ptsPor.push({x:(1-lm[16].x)*W,y:lm[16].y*H});
+      // pick 2nd finger from each hand: next tip in list different from best
+      const i2=TIPS.find(t=>t!==bestI)??TIPS[0];
+      const j2=TIPS.find(t=>t!==bestJ)??TIPS[0];
+      ptsPor.push({x:(1-lm0[bestI].x)*W,y:lm0[bestI].y*H});
+      ptsPor.push({x:(1-lm0[i2].x)*W,   y:lm0[i2].y*H});
+      ptsPor.push({x:(1-lm1[bestJ].x)*W,y:lm1[bestJ].y*H});
+      ptsPor.push({x:(1-lm1[j2].x)*W,   y:lm1[j2].y*H});
+      drawPortal(ptsPor,W,H);
     }
-    if(ptsPor.length===4) drawPortal(ptsPor,W,H);
   }
 
   // HUD timer + rec dot
